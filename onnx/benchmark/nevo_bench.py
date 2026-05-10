@@ -1,0 +1,433 @@
+import os
+import psutil
+import time
+import argparse
+import tempfile
+import zipfile
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+import onnxruntime as ort
+
+
+FS = 8000
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_AUDIO_PATH = SCRIPT_DIR / "test_clip.wav"
+DEFAULT_CODES_PATH = SCRIPT_DIR / "test_codes.npy"
+DEFAULT_WAV_OUT_PATH = SCRIPT_DIR / "output.wav"
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse and validate benchmark CLI arguments."""
+    parser = argparse.ArgumentParser(description="NEVO benchmark tool")
+    parser.add_argument(
+        "-o", "--operation",
+        required=True,
+        choices=["enc", "dec", "encdec"],
+        help='Operation: "enc", "dec", or "encdec"'
+    )
+    parser.add_argument(
+        "-m", "--model",
+        required=True,
+        help="Path to .nevo model file (resolved from current working directory)"
+    )
+    parser.add_argument(
+        "--nc",
+        type=int,
+        default=8,
+        help="Number of RVQ codebooks to use (default: 8)"
+    )
+    parser.add_argument(
+        "--cpu-affinity",
+        type=int,
+        default=1,
+        help="CPU core index for process affinity (default: 1)"
+    )
+
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Show extra info"
+    )
+
+    args = parser.parse_args()
+
+    model_path = Path(args.model).expanduser()
+    if not model_path.is_absolute():
+        model_path = (Path.cwd() / model_path).resolve()
+    else:
+        model_path = model_path.resolve()
+
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+    if model_path.suffix.lower() != ".nevo":
+        raise ValueError(f"Expected a .nevo file, got: {model_path}")
+    if args.nc < 1:
+        raise ValueError(f"nc must be >= 1, got: {args.nc}")
+
+    args.model = str(model_path)
+    return args
+
+
+def set_cpu_affinity(core_idx: int) -> psutil.Process:
+    """Try to pin the current process to one CPU core."""
+    p = psutil.Process(os.getpid())
+    try:
+        p.cpu_affinity([core_idx])
+    except Exception as e:
+        print(f"Warning: could not set CPU affinity to core {core_idx}: {e}")
+    return p
+
+
+def ram_mb(process: psutil.Process) -> float:
+    """Return resident memory for a process in megabytes."""
+    return process.memory_info().rss / (1024 ** 2)
+
+
+class ResidualVectorQuantizer:
+    """NumPy residual vector quantizer for exported `.nevo` codebooks."""
+
+    def __init__(self, codebooks: np.ndarray) -> None:
+        self.C = np.asarray(codebooks, dtype=np.float32)
+        self.Q, self.K, self.D = self.C.shape
+        self.cn = (self.C * self.C).sum(axis=2)
+
+    def quantize(self, x: np.ndarray, n_levels: int | None = None) -> np.ndarray:
+        """Return RVQ code indices for one latent vector."""
+        r = np.asarray(x, dtype=np.float32).reshape(-1)
+        if r.shape[0] != self.D:
+            raise ValueError(f"Expected latent dim {self.D}, got {r.shape[0]}")
+
+        L = self.Q if n_levels is None else int(n_levels)
+        if not (1 <= L <= self.Q):
+            raise ValueError(f"n_levels must be in [1, {self.Q}], got {L}")
+
+        idx = np.empty((L,), dtype=np.int64)
+
+        for i in range(L):
+            Ci = self.C[i]
+            r_norm = float(np.dot(r, r))
+            dot = Ci @ r
+            dist = self.cn[i] + r_norm - 2.0 * dot
+            k = int(np.argmin(dist))
+            idx[i] = k
+            r -= Ci[k]
+
+        return idx
+
+    def dequantize(self, codes: np.ndarray) -> np.ndarray:
+        """Return the summed codebook vector for RVQ code indices."""
+        codes = np.asarray(codes, dtype=np.int64).reshape(-1)
+        L = codes.shape[0]
+        if L > self.Q:
+            raise ValueError(f"Got {L} codebooks, but model only has {self.Q}")
+
+        x_hat = np.zeros((self.D,), dtype=np.float32)
+        for i, k in enumerate(codes):
+            x_hat += self.C[i, k]
+        return x_hat
+
+
+def model_dir_from_nevo(nevo_path: str | Path) -> str:
+    nevo_path = Path(nevo_path)
+
+    if not nevo_path.exists():
+        raise FileNotFoundError(f".nevo not found: {nevo_path}")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="nevo_"))
+
+    with zipfile.ZipFile(nevo_path, "r") as z:
+        z.extractall(temp_dir)
+
+    required = ["encoder.onnx", "decoder.onnx", "codebook.npy"]
+    missing = [f for f in required if not (temp_dir / f).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"{nevo_path} is missing {missing}. "
+            f"Expected files at root of archive: {required}"
+        )
+
+    return str(temp_dir.resolve())
+
+
+def create_ort_session(model_path: str) -> ort.InferenceSession:
+    """Create a single-threaded CPU ONNX Runtime session."""
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = 1
+    so.inter_op_num_threads = 1
+    so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    return ort.InferenceSession(
+        model_path,
+        providers=["CPUExecutionProvider"],
+        sess_options=so,
+    )
+
+
+def load_audio_mono(path: Path) -> tuple[np.ndarray, int]:
+    """Load an audio file as mono float32 samples and return `(audio, sample_rate)`."""
+    audio_raw, sr = sf.read(str(path), always_2d=True)
+    if audio_raw.shape[1] != 1:
+        audio_raw = audio_raw.mean(axis=1, keepdims=True)
+    audio_raw = audio_raw.flatten().astype(np.float32)
+    return audio_raw, sr
+
+
+def prepare_audio_frames(audio_raw: np.ndarray, frame_size: int) -> tuple[np.ndarray, int]:
+    """Pad and reshape audio into encoder input frames."""
+    pad = (-len(audio_raw)) % frame_size
+    audio_padded = np.pad(audio_raw, (0, pad), mode="constant")
+    n_frames = len(audio_padded) // frame_size
+    audio_inputs = audio_padded.reshape(n_frames, 1, 1, frame_size).astype(np.float32)
+    return audio_inputs, n_frames
+
+
+def build_initial_feed(session: ort.InferenceSession, main_input_array: np.ndarray, main_input_name: str) -> dict[str, np.ndarray]:
+    """Build an ONNX feed dict with zero-initialized state inputs."""
+    feed = {}
+    for inp in session.get_inputs():
+        if inp.name == main_input_name:
+            feed[inp.name] = main_input_array.astype(np.float32)
+        else:
+            feed[inp.name] = np.zeros(inp.shape, dtype=np.float32)
+    return feed
+
+
+def print_stats(t1: float, t2: float, n_frames: int, frame_size: int, peak_ram: float, initial_ram: float, frame_times: list[float]) -> None:
+    """Print benchmark timing and memory summary."""
+    frame_rate = FS / frame_size
+    rtf = (t2 - t1) / (n_frames / frame_rate)
+    print("Real Time Factor:", rtf)
+    print("Extra RAM used:", peak_ram - initial_ram, "MB")
+    print("Max Frame Time:", round(max(frame_times) * 1000, 1))
+
+
+def run_encode(model_dir: str, n_codebooks_used: int, process: psutil.Process, verbose: bool) -> None:
+    """Benchmark encoder plus NumPy RVQ quantization."""
+    if not DEFAULT_AUDIO_PATH.exists():
+        raise FileNotFoundError(f"Input wav not found: {DEFAULT_AUDIO_PATH}")
+
+    audio_raw, sr = load_audio_mono(DEFAULT_AUDIO_PATH)
+    if sr != FS:
+        print(f"Warning: input sample rate is {sr}, expected {FS}")
+
+    initial_ram = ram_mb(process)
+
+    encoder = create_ort_session(str(Path(model_dir) / "encoder.onnx"))
+
+    enc_input_names = [i.name for i in encoder.get_inputs()]
+    enc_output_names = [o.name for o in encoder.get_outputs()]
+
+    frame_size = encoder.get_inputs()[0].shape[2]
+
+    audio_inputs, n_frames = prepare_audio_frames(audio_raw, frame_size)
+    enc_feed = build_initial_feed(encoder, audio_inputs[0], enc_input_names[0])
+
+    enc_state_input_names = enc_input_names[1:]
+    enc_state_output_names = enc_output_names[1:]
+
+    codebooks = np.load(str(Path(model_dir) / "codebook.npy")).astype(np.float32)
+    quantizer = ResidualVectorQuantizer(codebooks)
+    code_outputs = np.zeros((n_frames, n_codebooks_used), dtype=np.int64)
+
+    peak_ram = initial_ram
+    frame_times = []
+
+    t1 = time.perf_counter()
+
+    for i in range(n_frames):
+        t_f1 = time.perf_counter()
+
+        enc_feed[enc_input_names[0]] = audio_inputs[i]
+        enc_outputs = encoder.run(enc_output_names, enc_feed)
+
+        latent_out = enc_outputs[0]
+        codes = quantizer.quantize(latent_out, n_codebooks_used)
+        code_outputs[i] = codes
+
+        for in_name, out_name in zip(enc_state_input_names, enc_state_output_names):
+            out_idx = enc_output_names.index(out_name)
+            enc_feed[in_name] = enc_outputs[out_idx]
+
+        current_ram = ram_mb(process)
+        if current_ram > peak_ram:
+            peak_ram = current_ram
+
+        frame_times.append(time.perf_counter() - t_f1)
+
+    t2 = time.perf_counter()
+
+    np.save(DEFAULT_CODES_PATH, code_outputs)
+    print_stats(t1, t2, n_frames, frame_size, peak_ram, initial_ram, frame_times)
+    if verbose:
+        print(f"Saved codes to: {DEFAULT_CODES_PATH}")
+
+
+def run_decode(model_dir: str, process: psutil.Process, verbose: bool) -> None:
+    """Benchmark decoder from saved RVQ code arrays."""
+    if not DEFAULT_CODES_PATH.exists():
+        raise FileNotFoundError(f"Codes file not found: {DEFAULT_CODES_PATH}")
+
+    code_inputs = np.load(DEFAULT_CODES_PATH)
+    n_frames = code_inputs.shape[0]
+
+    initial_ram = ram_mb(process)
+
+    decoder = create_ort_session(str(Path(model_dir) / "decoder.onnx"))
+
+    dec_input_names = [i.name for i in decoder.get_inputs()]
+    dec_output_names = [o.name for o in decoder.get_outputs()]
+
+    frame_size = decoder.get_outputs()[0].shape[2]
+    latent_dim = decoder.get_inputs()[0].shape[1]
+
+    dummy_embedding = np.zeros((1, latent_dim, 1), dtype=np.float32)
+    dec_feed = build_initial_feed(decoder, dummy_embedding, dec_input_names[0])
+
+    dec_state_input_names = dec_input_names[1:]
+    dec_state_output_names = dec_output_names[1:]
+
+    codebooks = np.load(str(Path(model_dir) / "codebook.npy")).astype(np.float32)
+    quantizer = ResidualVectorQuantizer(codebooks)
+
+    audio_outputs = np.zeros((n_frames, 1, 1, frame_size), dtype=np.float32)
+
+    peak_ram = initial_ram
+    frame_times = []
+
+    t1 = time.perf_counter()
+
+    for i in range(n_frames):
+        t_f1 = time.perf_counter()
+
+        quantized_embedding = quantizer.dequantize(code_inputs[i]).reshape(1, latent_dim, 1)
+
+        dec_feed[dec_input_names[0]] = quantized_embedding
+        dec_outputs = decoder.run(dec_output_names, dec_feed)
+
+        audio_outputs[i] = dec_outputs[0]
+
+        for in_name, out_name in zip(dec_state_input_names, dec_state_output_names):
+            out_idx = dec_output_names.index(out_name)
+            dec_feed[in_name] = dec_outputs[out_idx]
+
+        current_ram = ram_mb(process)
+        if current_ram > peak_ram:
+            peak_ram = current_ram
+
+        frame_times.append(time.perf_counter() - t_f1)
+
+    t2 = time.perf_counter()
+
+    sf.write(str(DEFAULT_WAV_OUT_PATH), audio_outputs.flatten(), FS)
+    print_stats(t1, t2, n_frames, frame_size, peak_ram, initial_ram, frame_times)
+    if verbose:
+        print(f"Saved wav to: {DEFAULT_WAV_OUT_PATH}")
+
+
+def run_encode_decode(model_dir: str, n_codebooks_used: int, process: psutil.Process, verbose: bool) -> None:
+    """Benchmark encoder, NumPy RVQ, and decoder together."""
+    if not DEFAULT_AUDIO_PATH.exists():
+        raise FileNotFoundError(f"Input wav not found: {DEFAULT_AUDIO_PATH}")
+
+    audio_raw, sr = load_audio_mono(DEFAULT_AUDIO_PATH)
+    if sr != FS:
+        print(f"Warning: input sample rate is {sr}, expected {FS}")
+
+    initial_ram = ram_mb(process)
+
+    encoder = create_ort_session(str(Path(model_dir) / "encoder.onnx"))
+    decoder = create_ort_session(str(Path(model_dir) / "decoder.onnx"))
+
+    enc_input_names = [i.name for i in encoder.get_inputs()]
+    enc_output_names = [o.name for o in encoder.get_outputs()]
+    dec_input_names = [i.name for i in decoder.get_inputs()]
+    dec_output_names = [o.name for o in decoder.get_outputs()]
+
+    frame_size = encoder.get_inputs()[0].shape[2]
+    latent_dim = encoder.get_outputs()[0].shape[1]
+
+    audio_inputs, n_frames = prepare_audio_frames(audio_raw, frame_size)
+    audio_outputs = np.zeros((n_frames, 1, 1, frame_size), dtype=np.float32)
+
+    enc_feed = build_initial_feed(encoder, audio_inputs[0], enc_input_names[0])
+
+    dummy_embedding = np.zeros((1, latent_dim, 1), dtype=np.float32)
+    dec_feed = build_initial_feed(decoder, dummy_embedding, dec_input_names[0])
+
+    enc_state_input_names = enc_input_names[1:]
+    enc_state_output_names = enc_output_names[1:]
+    dec_state_input_names = dec_input_names[1:]
+    dec_state_output_names = dec_output_names[1:]
+
+    codebooks = np.load(str(Path(model_dir) / "codebook.npy")).astype(np.float32)
+    quantizer = ResidualVectorQuantizer(codebooks)
+    code_outputs = np.zeros((n_frames, n_codebooks_used), dtype=np.int64)
+
+    peak_ram = initial_ram
+    frame_times = []
+
+    t1 = time.perf_counter()
+
+    for i in range(n_frames):
+        t_f1 = time.perf_counter()
+
+        enc_feed[enc_input_names[0]] = audio_inputs[i]
+        enc_outputs = encoder.run(enc_output_names, enc_feed)
+
+        latent_out = enc_outputs[0]
+        codes = quantizer.quantize(latent_out, n_codebooks_used)
+        code_outputs[i] = codes
+        quantized_embedding = quantizer.dequantize(codes).reshape(1, latent_dim, 1)
+
+        dec_feed[dec_input_names[0]] = quantized_embedding
+        dec_outputs = decoder.run(dec_output_names, dec_feed)
+
+        audio_outputs[i] = dec_outputs[0]
+
+        for in_name, out_name in zip(enc_state_input_names, enc_state_output_names):
+            out_idx = enc_output_names.index(out_name)
+            enc_feed[in_name] = enc_outputs[out_idx]
+
+        for in_name, out_name in zip(dec_state_input_names, dec_state_output_names):
+            out_idx = dec_output_names.index(out_name)
+            dec_feed[in_name] = dec_outputs[out_idx]
+
+        current_ram = ram_mb(process)
+        if current_ram > peak_ram:
+            peak_ram = current_ram
+
+        frame_times.append(time.perf_counter() - t_f1)
+
+    t2 = time.perf_counter()
+
+    np.save(DEFAULT_CODES_PATH, code_outputs)
+    sf.write(str(DEFAULT_WAV_OUT_PATH), audio_outputs.flatten(), FS)
+
+    print_stats(t1, t2, n_frames, frame_size, peak_ram, initial_ram, frame_times)
+    if verbose:
+        print(f"Saved codes to: {DEFAULT_CODES_PATH}")
+        print(f"Saved wav to: {DEFAULT_WAV_OUT_PATH}")
+
+
+def main() -> None:
+    """Entrypoint for the NEVO benchmark CLI."""
+    args = parse_args()
+
+    if args.verbose:
+        print("Model location:", args.model)
+        print("Script directory:", SCRIPT_DIR)
+
+    process = set_cpu_affinity(args.cpu_affinity)
+    model_dir = model_dir_from_nevo(args.model)
+
+    if args.operation == "enc":
+        run_encode(model_dir=model_dir, n_codebooks_used=args.nc, process=process,verbose=args.verbose)
+    elif args.operation == "dec":
+        run_decode(model_dir=model_dir, process=process,verbose=args.verbose)
+    elif args.operation == "encdec":
+        run_encode_decode(model_dir=model_dir, n_codebooks_used=args.nc, process=process,verbose=args.verbose)
+
+
+if __name__ == "__main__":
+    main()

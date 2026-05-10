@@ -1,0 +1,19 @@
+﻿# Core non-PyTorch dependencies for training and model code.
+# Tested on Python version 3.13
+#
+# Install torch and torchaudio separately for your platform/GPU first:
+# https://pytorch.org/get-started/locally/
+#
+# This project was last developed with CUDA-specific PyTorch packages:
+#   torch==2.11.0+cu130
+#   torchaudio==2.11.0+cu130
+# Those wheels should not be forced on all users through this file.
+
+einops==0.8.2
+einx==0.4.3
+numpy==2.4.4
+pesq==0.0.4
+prettytable==3.17.0
+pystoi==0.4.1
+scipy==1.17.1
+torch-pesq==0.1.2

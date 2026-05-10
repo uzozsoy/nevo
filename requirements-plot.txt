@@ -1,0 +1,6 @@
+﻿# Optional dependencies for eval/plot_metrics.py.
+
+-r requirements.txt
+
+matplotlib==3.10.9
+pandas==3.0.2

@@ -1,0 +1,7 @@
+﻿# Optional dependencies for live audio streaming demos.
+#
+# Requires the ONNX extras plus a working PortAudio/sounddevice setup.
+
+-r requirements-onnx.txt
+
+sounddevice==0.5.5

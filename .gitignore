@@ -1,0 +1,21 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+
+# Run outputs: ignore all run directories except main.
+runs/*
+!runs/main/
+!runs/main/**
+
+#comparison directories
+eval/comparison/from_melpe_website/*
+!eval/comparison/from_melpe_website/reference/**
+!eval/comparison/from_melpe_website/main/**
+!eval/comparison/from_melpe_website/melpe/**
+
+# Model checkpoints
+*.pt
