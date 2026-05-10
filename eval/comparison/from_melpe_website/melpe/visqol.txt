@@ -1,0 +1,9 @@
+VISQOL results
+Reference: D:\PycharmProjects\NEVO\comparison\from_melpe_website\uncompressed\clean.wav
+Run dir: D:\PycharmProjects\NEVO\comparison\from_melpe_website\melpe
+----------------------------------------
+filename                                	visqol
+----------------------------------------
+clean_melpe_1200.wav                    	3.570409
+clean_melpe_2400.wav                    	3.687867
+clean_melpe_600.wav                     	3.372731

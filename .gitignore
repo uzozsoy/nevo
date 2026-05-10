@@ -6,16 +6,24 @@ __pycache__/
 # Virtual environment
 .venv/
 
-# Run outputs: ignore all run directories except main.
-runs/*
-!runs/main/
-!runs/main/**
+# PyCharm
+.idea/
 
-#comparison directories
-eval/comparison/from_melpe_website/*
-!eval/comparison/from_melpe_website/reference/**
-!eval/comparison/from_melpe_website/main/**
-!eval/comparison/from_melpe_website/melpe/**
-
-# Model checkpoints
+# Ignore all model/checkpoint files by default
 *.pt
+
+# Run outputs: ignore all run directories except selected best checkpoints under main
+runs/**
+!runs/
+!runs/main/
+!runs/main/**/
+!runs/main/**/*best.pt
+
+# Comparison directories
+eval/comparison/from_melpe_website/*
+!eval/comparison/from_melpe_website/reference/
+!eval/comparison/from_melpe_website/reference/**
+!eval/comparison/from_melpe_website/main/
+!eval/comparison/from_melpe_website/main/**
+!eval/comparison/from_melpe_website/melpe/
+!eval/comparison/from_melpe_website/melpe/**

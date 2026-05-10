@@ -213,8 +213,6 @@ if __name__ == "__main__":
     to_plot = {
         #"nevo_lite": "blue",
         "main/nevo": "green",
-        "stabilize/nevo_less_noise": "blue",
-        "stabilize/nevo_wo_mel_mask":"red",
         #"80ms_lookahead": "red",
     }
 

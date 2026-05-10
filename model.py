@@ -9,7 +9,7 @@ from helpers.modules import NevoLSTM,NevoConv1d,NevoConvTranspose1d,Snake1d #sna
 
 def get_2d_padding(
     kernel_size: tuple[int, int] ,
-    dilation: tuple[int, int],
+    dilation: tuple[int, int] = (1, 1),
 ) -> tuple[int, int]:
     """Return symmetric 2D padding for a kernel/dilation pair."""
     return (((kernel_size[0] - 1) * dilation[0]) // 2, ((kernel_size[1] - 1) * dilation[1]) // 2)
@@ -582,138 +582,6 @@ class NevoModel(nn.Module):
                                                                   use_levels=quantizer_limit,
                                                                   freeze_codebook=True)
             quantized_latents = quantized_latents.transpose(1, 2)
-            decoded = self.decoder(quantized_latents)
-        return decoded
-
-#unused
-class NevoConcatModel(nn.Module):
-    """Nevo model variant that groups adjacent latent frames before RVQ.
-
-    Args:
-        config: Training/model configuration dictionary. Uses `VQ.group_size`
-            when present to concatenate latent frames before quantization.
-    """
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        super().__init__()
-        self.channels = [config["channels"] * (2**i) for i in range(len(config["strides"]) + 1)]
-        act = config.get("activation", "elu")
-
-        self.base_latent_dim = config["VQ"]["latent_dim"]
-        self.vq_group_size = config["VQ"].get("group_size", 1)
-
-        self.encoder = NevoEncoder(
-            channels=self.channels,
-            strides=config["strides"],
-            n_of_resunits=config["n_resunits"],
-            res_kernelsize=config["res_kernelsize"],
-            res_compression=config["res_compression"],
-            dilation_base=config["dilation_base"],
-            edge_kernelsize=config["edge_kernelsize"],
-            lstm_layers=config["lstm_layers"],
-            latent_dim=self.base_latent_dim,
-            act=act
-        )
-
-        self.vq = ResidualVQ(
-            dim=self.base_latent_dim * self.vq_group_size,
-            num_quantizers=config["VQ"]["num_quantizer"],
-            codebook_size=config["VQ"]["codebook_size"],
-            kmeans_init=True if config["VQ"]["kmeans_iters"] else False,
-            kmeans_iters=config["VQ"]["kmeans_iters"],
-            threshold_ema_dead_code=config["VQ"]["th_ema_dead"],
-            decay=config["VQ"]["decay"],
-        )
-
-        self.decoder = NevoDecoder(
-            channels=self.channels,
-            strides=config["strides"],
-            n_of_resunits=config["n_resunits"],
-            res_kernelsize=config["res_kernelsize"],
-            res_compression=config["res_compression"],
-            dilation_base=config["dilation_base"],
-            edge_kernelsize=config["edge_kernelsize"],
-            lstm_layers=config["lstm_layers"],
-            latent_dim=self.base_latent_dim,
-            act=act
-        )
-
-    def _group_latents_for_vq(self, z: torch.Tensor) -> tuple[torch.Tensor, int]:
-        """Convert `[B, D, T]` latents to `[B, T/g, D*g]` for grouped RVQ."""
-        # z: [B, D, T]
-        g = self.vq_group_size
-        if g == 1:
-            return z.transpose(1, 2), z.shape[-1]   # [B, T, D], original T
-
-        B, D, T = z.shape
-        assert T % g == 0, f"latent length T={T} must be divisible by group_size={g}"
-        z = z.transpose(1, 2).contiguous()          # [B, T, D]
-        z = z.view(B, T // g, D * g)                # [B, T/g, D*g]
-        return z, T
-
-    def _ungroup_latents_from_vq(self, zq: torch.Tensor, original_T: int) -> torch.Tensor:
-        """Restore grouped RVQ output to `[B, D, T]` latent layout."""
-        # zq: [B, T/g, D*g]
-        g = self.vq_group_size
-        if g == 1:
-            return zq.transpose(1, 2).contiguous()  # [B, D, T]
-
-        B, Tg, Dg = zq.shape
-        D = self.base_latent_dim
-        assert Dg == D * g, f"Expected grouped dim {D*g}, got {Dg}"
-        zq = zq.view(B, original_T, D)              # [B, T, D]
-        return zq.transpose(1, 2).contiguous()      # [B, D, T]
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        quantizer_limit: int | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Encode, group, quantize, ungroup, and decode audio during training."""
-        z = self.encoder(x)  # [B, D, T]
-        z_grouped, original_T = self._group_latents_for_vq(z)
-
-        quantized_grouped, indices, commitment_loss = self.vq(
-            z_grouped,
-            use_levels=quantizer_limit,
-            freeze_codebook=False
-        )
-
-        quantized_latents = self._ungroup_latents_from_vq(quantized_grouped, original_T)
-        decoded = self.decoder(quantized_latents)
-        return quantized_latents, indices, decoded, commitment_loss.mean()
-
-    def stream(self) -> None:
-        """Enable stateful streaming behavior in encoder and decoder modules."""
-        for module in self.encoder.modules():
-            if isinstance(module, NevoConv1d):
-                module.pad_with_previous = True
-            if isinstance(module, EncoderBlock):
-                module.stream()
-            if isinstance(module, NevoLSTM):
-                module.keep_state = True
-
-        for module in self.decoder.modules():
-            if isinstance(module, NevoConv1d):
-                module.pad_with_previous = True
-            if isinstance(module, DecoderBlock):
-                module.stream()
-            if isinstance(module, NevoLSTM):
-                module.keep_state = True
-
-    def evalforward(self, x: torch.Tensor, quantizer_limit: int | None = None) -> torch.Tensor:
-        """Inference-only grouped-latent forward pass returning decoded audio."""
-        with torch.no_grad():
-            z = self.encoder(x)  # [B, D, T]
-            z_grouped, original_T = self._group_latents_for_vq(z)
-
-            quantized_grouped, indices, commitment_loss = self.vq(
-                z_grouped.float(),
-                use_levels=quantizer_limit,
-                freeze_codebook=True
-            )
-
-            quantized_latents = self._ungroup_latents_from_vq(quantized_grouped, original_T)
             decoded = self.decoder(quantized_latents)
         return decoded
 

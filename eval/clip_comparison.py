@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ######################
-run="stabilize/nevo_wo_mel_mask"
+run="main/nevo"
 ######################
 
 use_ema = True

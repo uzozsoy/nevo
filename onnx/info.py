@@ -1,20 +1,10 @@
-from pathlib import Path
 import onnxruntime as ort
 
-cur_dir = Path(__file__).resolve().parent
-root_dir = cur_dir.parent
+ENCODER_LOC = r"" #encoder onnx file
+DECODER_LOC = r"" #decoder onnx file
 
-######################
-
-run="nevo"
-
-######################
-
-run_dir = root_dir / "runs" / run
-onnx_dir = run_dir / "onnx"
-
-encoder = ort.InferenceSession(str(onnx_dir / "encoder.onnx"), providers=["CPUExecutionProvider"])
-decoder = ort.InferenceSession(str(onnx_dir / "decoder.onnx"), providers=["CPUExecutionProvider"])
+encoder = ort.InferenceSession(ENCODER_LOC, providers=["CPUExecutionProvider"])
+decoder = ort.InferenceSession(DECODER_LOC, providers=["CPUExecutionProvider"])
 
 print("Enc Inputs:")
 for i in encoder.get_inputs():

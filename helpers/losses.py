@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from helpers.modules import NevoMelSpectogram
-import torch_pesq
+#import torch_pesq #unused
 
 mel_masking_values_8khz = [
  5.97818494e-05, 7.59511427e-04, 2.77077232e-03, 6.37054728e-03,

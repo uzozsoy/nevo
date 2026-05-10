@@ -16,4 +16,5 @@ pesq==0.0.4
 prettytable==3.17.0
 pystoi==0.4.1
 scipy==1.17.1
-torch-pesq==0.1.2
+torchcodec==0.11.1
+#torch-pesq==0.1.2 # not used

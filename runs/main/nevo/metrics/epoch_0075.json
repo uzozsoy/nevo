@@ -1,0 +1,222 @@
+{
+  "bitrates": [
+    300,
+    600,
+    1200
+  ],
+  "specs": {
+    "Bitrate(bps)": {
+      "mode": "none",
+      "kind": "text",
+      "scale": 1.0,
+      "fmt": ".3f"
+    },
+    "Selected": {
+      "mode": "none",
+      "kind": "number",
+      "scale": 1.0,
+      "fmt": ".0f"
+    },
+    "CodebookUsage": {
+      "mode": "none",
+      "kind": "text",
+      "scale": 1.0,
+      "fmt": ".3f"
+    },
+    "CodeUtil(%)": {
+      "mode": "increase",
+      "kind": "number",
+      "scale": 1.0,
+      "fmt": ".2f"
+    },
+    "TimeLoss(e-3)": {
+      "mode": "decrease",
+      "kind": "number",
+      "scale": 1000.0,
+      "fmt": ".2f"
+    },
+    "FreqLoss(e-3)": {
+      "mode": "decrease",
+      "kind": "number",
+      "scale": 1000.0,
+      "fmt": ".2f"
+    },
+    "FeatLoss(e-3)": {
+      "mode": "decrease",
+      "kind": "number",
+      "scale": 1000.0,
+      "fmt": ".2f"
+    },
+    "AdvLoss(e-3)": {
+      "mode": "none",
+      "kind": "number",
+      "scale": 1000.0,
+      "fmt": ".2f"
+    },
+    "DisLoss(e-3)": {
+      "mode": "none",
+      "kind": "number",
+      "scale": 1000.0,
+      "fmt": ".2f"
+    },
+    "CommitLoss(e-6)": {
+      "mode": "decrease",
+      "kind": "number",
+      "scale": 1000000.0,
+      "fmt": ".2f"
+    },
+    "PESQ": {
+      "mode": "increase",
+      "kind": "number",
+      "scale": 1.0,
+      "fmt": ".3f"
+    },
+    "ESTOI": {
+      "mode": "increase",
+      "kind": "number",
+      "scale": 1.0,
+      "fmt": ".3f"
+    },
+    "TotalScore": {
+      "mode": "increase",
+      "kind": "number",
+      "scale": 1.0,
+      "fmt": ".3f"
+    }
+  },
+  "values": {
+    "Bitrate(bps)": [
+      300,
+      600,
+      1200
+    ],
+    "Selected": [
+      515,
+      959,
+      1526
+    ],
+    "CodebookUsage": [
+      "128/128",
+      "256/256",
+      "512/512"
+    ],
+    "CodeUtil(%)": [
+      99.19140647747241,
+      99.55864392198582,
+      99.76589166814476
+    ],
+    "TimeLoss(e-3)": [
+      33.554471074377446,
+      26.23073618987243,
+      21.19983372865623
+    ],
+    "FreqLoss(e-3)": [
+      131.3618190514231,
+      85.32644577549695,
+      65.7957836858645
+    ],
+    "FeatLoss(e-3)": [
+      14.218559908201394,
+      10.736716775237209,
+      11.468562678352175
+    ],
+    "AdvLoss(e-3)": [
+      477.167154689437,
+      492.9736385411341,
+      525.6936118241063
+    ],
+    "DisLoss(e-3)": [
+      872.6375248825666,
+      848.5040609356757,
+      798.9814298259165
+    ],
+    "CommitLoss(e-6)": [
+      43483.897161136556,
+      60435.897238529265,
+      69990.41681784556
+    ],
+    "PESQ": [
+      1.9704038837681646,
+      2.57357991260031,
+      2.939564093299534
+    ],
+    "ESTOI": [
+      0.5939456178423856,
+      0.6989134786172271,
+      0.7600030855705218
+    ],
+    "TotalScore": [
+      0.592,
+      0.592,
+      0.592
+    ]
+  },
+  "counts": {
+    "Bitrate(bps)": [
+      0,
+      0,
+      0
+    ],
+    "Selected": [
+      0,
+      0,
+      0
+    ],
+    "CodebookUsage": [
+      0,
+      0,
+      0
+    ],
+    "CodeUtil(%)": [
+      0,
+      0,
+      0
+    ],
+    "TimeLoss(e-3)": [
+      515,
+      959,
+      1526
+    ],
+    "FreqLoss(e-3)": [
+      515,
+      959,
+      1526
+    ],
+    "FeatLoss(e-3)": [
+      515,
+      959,
+      1526
+    ],
+    "AdvLoss(e-3)": [
+      515,
+      959,
+      1526
+    ],
+    "DisLoss(e-3)": [
+      515,
+      959,
+      1526
+    ],
+    "CommitLoss(e-6)": [
+      515,
+      959,
+      1526
+    ],
+    "PESQ": [
+      0,
+      0,
+      0
+    ],
+    "ESTOI": [
+      0,
+      0,
+      0
+    ],
+    "TotalScore": [
+      0,
+      0,
+      0
+    ]
+  },
+  "epoch": 75
+}

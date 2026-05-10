@@ -1,0 +1,89 @@
+------------ training parameters --------------
+batch_size: 64
+accum_steps: 1
+updates_per_epoch: 3000
+epoch_count: 300
+gen_num_warmup: 15
+gen_learn_rate: 0.0003
+gen_min_lr_coeff: 0.01
+dis_num_warmup: 5
+dis_learn_rate: 0.0002
+dis_min_lr_coeff: 0.01
+dis_update_prob: 1
+------------ loss parameters --------------
+commit_coeff: 1
+commit_rampinit: 0
+commit_rampstart: 0
+commit_rampend: 0
+time_weight: 0.1
+freq_weight: 2.0
+adv_weight: 4.0
+adv_rampinit: 0.0
+adv_rampstart: 0
+adv_rampend: 0
+feat_weight: 4.0
+feat_rampinit: 0.0
+feat_rampstart: 0
+feat_rampend: 0
+------------ bandwidth parameters --------------
+quantizer_levels: [2, 4, 8]
+level_selection_weights: [1, 2, 3]
+bw_per_q_level(bps): [300, 600, 1200]
+------------ dataset parameters --------------
+add_rir_prob: 0.1
+add_noise_prob: 0.2
+snr_range_db: [-10, 25]
+------------ misc parameters --------------
+frame_count: 25
+ema_decay: 0.99
+checkpoint_steps: 50
+test_steps: 1
+test_clips_directory: D:\PycharmProjects\Datasets\Custom\test
+discard_for_test: 10
+bw_idxs_for_best: [0, 1, 2]
+rng_seed: 42
+final_save_location: ./models/nevo.pt
+script_name: nevo
+----------------- model config -------------------
+{'sample_rate': 8000,
+ 'channels': 32,
+ 'strides': [2, 4, 5, 8],
+ 'n_resunits': 1,
+ 'res_kernelsize': 3,
+ 'res_compression': 2,
+ 'dilation_base': 2,
+ 'edge_kernelsize': 7,
+ 'lstm_layers': 3,
+ 'VQ': {'latent_dim': 16,
+        'num_quantizer': 8,
+        'codebook_size': 64,
+        'kmeans_iters': 50,
+        'th_ema_dead': 2,
+        'decay': 0.99},
+ 'MSSTFTD': {'enable': True,
+             'nffts': [1024, 512, 256, 128],
+             'windows': [1024, 512, 256, 128],
+             'hops': [256, 128, 64, 32],
+             'channels': 32,
+             'max_channels': 32,
+             'logmag': False},
+ 'melspec_scales': [6, 7, 8, 9, 10]}
+--------------------------------------------------
+Traceback (most recent call last):
+  File "D:\repos\nevo\runs\main\nevo\nevo_train.py", line 159, in <module>
+    dis_model.append(MSSTFTDiscriminator(
+                     ~~~~~~~~~~~~~~~~~~~^
+        n_ffts=config["MSSTFTD"]["nffts"],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        log_mag=config["MSSTFTD"]["logmag"],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ).to(device))
+    ^
+  File "D:\repos\nevo\model.py", line 101, in __init__
+    self.discriminators.append(STFTDModule(nfft,winsize,hop,normalize=normalize,channels=channels,max_n_channels=max_n_channels,log_mag=log_mag,log_floor=log_floor))
+                               ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\repos\nevo\model.py", line 49, in __init__
+    weight_norm(nn.Conv2d(in_channels=1 if log_mag else 2, out_channels=min(max_c,c), kernel_size=(9, 3), padding=get_2d_padding((9, 3)))),
+                                                                                                                  ~~~~~~~~~~~~~~^^^^^^^^
+TypeError: get_2d_padding() missing 1 required positional argument: 'dilation'
