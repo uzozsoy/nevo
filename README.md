@@ -1,8 +1,8 @@
 # NEVO
 
-NEVO is a neural audio codec research codebase for low-bitrate, frame-based audio compression. The core model encodes mono waveform frames into latent features, quantizes them with residual vector quantization (RVQ), and decodes the quantized latents back to audio.
+NEVO is a neural audio codec research codebase for low-bitrate audio compression. The core model encodes mono waveform frames into latent features, quantizes them with residual vector quantization (RVQ), and decodes the quantized latents back to audio.
 
-This repository currently contains the model code, dataset utilities, losses, ONNX export helpers, benchmark scripts, and evaluation/plotting scripts. Some release details are still placeholders because the public training entrypoint, exact environment, and checkpoint locations are not included in this snapshot.
+This repository currently contains the model code, dataset utilities, losses, ONNX export helpers, benchmark scripts, and evaluation/plotting scripts.
 
 ## Repository Layout
 
@@ -14,20 +14,23 @@ This repository currently contains the model code, dataset utilities, losses, ON
 |-- requirements-onnx.txt       # Optional ONNX/export/benchmark dependencies
 |-- requirements-plot.txt       # Optional plotting dependencies
 |-- requirements-stream.txt     # Optional live audio dependencies
-|-- encodec/                    # EnCodec-derived training utilities
+|-- encodec/                    # EnCodec's loss balancer training utility
 |-- helpers/
 |   |-- info.py                 # Logging, metrics, codebook usage tracking
-|   |-- losses.py               # Mel, PESQ proxy, adversarial, feature losses
-|   |-- modules.py              # Convolution, LSTM, mel spectrogram modules
+|   |-- losses.py               # Multi scale mel spectrogram, adversarial, feature losses
+|   |-- modules.py              # Streaming capable convolution and LSTM modules, and Mel Spectrogram
 |   `-- utils.py                # Checkpoint, seeding, STOI alignment helpers
 |-- onnx/
 |   |-- convert.py              # Exports encoder/decoder/codebooks into .nevo bundle
 |   |-- io_helpers.py           # ONNX wrapper/state flattening helpers
 |   `-- benchmark/              # Offline and live ONNX benchmark scripts
-|-- eval/                       # Clip comparison and metrics plotting tools
+|-- eval/
+|   |-- clip_comparison.py      # Processes wavs in a directory to compute metrics and save converted files    
+|   |-- plot_metrics.py         # Allows to plot losses, and metric scores to evaluate different runs
 |-- runs/
-|   `-- nevo/
-|       `-- nevo_train.py       # Default training experiment
+|   `-- main/
+|       `-- nevo/
+|           `-- nevo_train.py   # Default training experiment
 |-- vq/                         # vector-quantize-pytorch-derived RVQ implementation
 `-- THIRD_PARTY_NOTICES.md      # Third-party attribution and license notices
 ```
@@ -40,7 +43,6 @@ The main model classes live in `model.py`.
 - `ResidualVQ`: Quantizes latent frames using multiple residual codebooks.
 - `NevoDecoder`: Reconstructs waveform frames from quantized latents.
 - `NevoModel`: End-to-end encoder, RVQ, decoder model.
-- `NevoConcatModel`: Variant that groups adjacent latent frames before quantization.
 - `MSSTFTDiscriminator`: Multi-scale STFT discriminator used for adversarial training.
 
 The `quantizer_limit` / `use_levels` path controls how many RVQ levels are active. This is used for custom bandwidth operation.
@@ -58,7 +60,7 @@ It can optionally:
 
 Dataset output is a tensor shaped `[2, chunk_len]`, where index `0` is the altered/noisy signal and index `1` is the clean target.
 
-Example placeholder:
+Example:
 
 ```python
 from dataset import AudioDataset
@@ -112,7 +114,7 @@ pip install -r requirements-stream.txt  # live microphone/speaker demos
 The default training script is:
 
 ```text
-runs/nevo/nevo_train.py
+runs/main/nevo/nevo_train.py
 ```
 
 It defines:
@@ -124,39 +126,19 @@ It defines:
 - checkpoint save/resume logic,
 - PESQ/ESTOI validation and best-checkpoint selection.
 
-The script currently contains local Windows dataset paths. Edit these before training:
+The run writes metrics under `runs/main/nevo/metrics/` and, when run from `runs/main/nevo`, writes checkpoints under `runs/main/nevo/models/`.
+
+You can create as many subdirectories as you want. Create you run as: `runs/**/run-name/run-name_train.py` and use the tools as 
 
 ```python
-hyper["misc"]["test_clips_directory"]
-dataset_directories
-noise_directory
-rir_directory
+run = "**//run-name"
 ```
-
-Recommended invocation from the run directory:
-
-```powershell
-cd runs/nevo
-$env:PYTHONPATH = (Resolve-Path ../..).Path
-python nevo_train.py
-```
-
-Equivalent shell form:
-
-```bash
-cd runs/nevo
-PYTHONPATH=../.. python nevo_train.py
-```
-
-The run writes metrics under `runs/nevo/metrics/` and, when run from `runs/nevo`, writes checkpoints under `runs/nevo/models/`.
 
 Resume behavior is controlled by `resumefromcheckpoint` in `nevo_train.py`:
 
 - `0`: start from scratch.
 - `-1`: resume from `./models/temp/nevo.pt`.
 - positive integer: resume from `./models/checkpoints/nevo_<epoch>.pt`.
-
-TODO: replace in-script constants with CLI/config files before release.
 
 ## ONNX Export
 
@@ -172,28 +154,14 @@ The `.nevo` file is a zip bundle containing the encoder, decoder, and codebook f
 Current export configuration is set inside `onnx/convert.py`:
 
 ```python
-run = "stabilize/nevo_wo_mel_mask"
+run = "main/nevo"
 use_ema = True
 use_best = True
 ```
 
-TODO: replace these constants with command-line arguments before release.
-
-For the default training run, update `run` to:
-
-```python
-run = "nevo"
-```
-
-Then run:
-
-```bash
-python onnx/convert.py
-```
-
 ## Benchmarking
 
-The consolidated benchmark CLI is:
+The benchmark CLI for RTF calculation is:
 
 ```bash
 python onnx/benchmark/nevo_bench.py -o encdec -m path/to/model.nevo --nc 4
@@ -215,42 +183,17 @@ The benchmark prints real-time factor, peak extra RAM, and max frame time.
 python onnx/benchmark/nevo_stream.py --path path/to/model.nevo --nc 4 --in-dev 0 --out-dev 0
 ```
 
-`onnx/benchmark/nevo_gtcrn_stream.py` adds a GTCRN ONNX denoiser before the codec.
+`onnx/benchmark/nevo_gtcrn_stream.py` adds a GTCRN ONNX denoiser before the codec. This is the preferred run method.
 
 ```bash
-python onnx/benchmark/nevo_gtcrn_stream.py --path path/to/model.nevo --den-path path/to/gtcrn_simple.onnx --nc 4
+python onnx/benchmark/nevo_gtcrn_stream.py --path path/to/model.nevo --den-path path/to/gtcrn_simple.onnx --nc 8
 ```
-
-TODO: remove or replace hard-coded local default paths and device ids in the streaming scripts before release.
 
 ## Evaluation
 
 `eval/clip_comparison.py` compares reconstructed clips against references and writes per-bitrate ESTOI/PESQ results.
 
-`eval/plot_metrics.py` plots metrics saved under a `runs/<run>/metrics/history.csv` layout. The training script writes this file through `helpers.info.EpochMetrics`.
-
-## Checkpoint Format
-
-Several scripts expect checkpoint dictionaries with keys like:
-
-```text
-config
-hyper
-gen_model
-dis_models
-gen_optimizer
-dis_optimizers
-gen_scheduler
-dis_schedulers
-balancer
-ema_gen_model
-last_epoch_info
-best_score
-last_epoch_idx
-rng_state
-```
-
-These are written by `helpers.utils.save_allstates()`.
+`eval/plot_metrics.py` plots metrics saved under a `runs/<run>/metrics/history.csv` layout.
 
 ## Third-Party Attribution
 
@@ -262,11 +205,3 @@ This repository includes or references work derived from:
 
 See `THIRD_PARTY_NOTICES.md` for copyright, license, source links, and citations.
 
-## Release TODOs
-
-- Add a root project license file.
-- Move training configuration out of `runs/nevo/nevo_train.py` into CLI/config files.
-- Replace hard-coded dataset roots, run paths, local model paths, and audio device ids with CLI/config options.
-- Decide whether benchmark audio, generated WAVs, `.npy` files, and `__pycache__` files should be distributed.
-- Add a small smoke test for model construction, ONNX export, and `.nevo` benchmark loading.
-- Add model cards or checkpoint metadata for any released weights.
