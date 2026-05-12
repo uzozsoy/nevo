@@ -16,7 +16,7 @@ use_ema = True
 use_best = True
 
 if not use_best: #checkpoint epoch, 0 for final model, and -1 for custom directory
-    checkpoint = -1
+    checkpoint = 200
     if checkpoint==-1:
         custom_dir = r""
 

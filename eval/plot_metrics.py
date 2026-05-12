@@ -142,7 +142,7 @@ def plot_total_score_dict(ax: Axes, bitrates: list[int] | tuple[int, ...], runs:
 
         assert np.array_equal(x_pesq, x_estoi)
 
-        scores = pesq / 4.5 + estoi
+        scores = pesq / 5 + estoi
 
         if avg:
             scores /= len(bitrates) * 2
@@ -175,7 +175,7 @@ def plot_total_score_smooth_dict(
 
         assert np.array_equal(x_pesq, x_estoi)
 
-        scores = pesq / 4.5 + estoi
+        scores = pesq / 5 + estoi
 
         if avg:
             scores /= len(bitrates) * 2
@@ -213,6 +213,7 @@ if __name__ == "__main__":
     to_plot = {
         #"nevo_lite": "blue",
         "main/nevo": "green",
+        "main/nevo_lite":"blue",
         #"80ms_lookahead": "red",
     }
 

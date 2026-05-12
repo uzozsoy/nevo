@@ -14,7 +14,7 @@ from io_helpers import (
 
 
 ######################
-run="main/nevo"
+run="main/nevo_lite"
 ######################
 
 use_ema = True

@@ -34,9 +34,6 @@ RIR_DIR = r"D:\PycharmProjects\Datasets\Room Impulse Response and Noise Database
 
 ##############################################
 
-root_dir: Path = Path(__file__).resolve().parent
-runs_dir: Path = root_dir.parent
-project_dir: Path = runs_dir.parent
 
 hyper: dict[str, dict[str, Any]] = {
 
@@ -185,7 +182,11 @@ if __name__ == '__main__':
         {"name": "TotalScore", "mode": "increase", "fmt": ".3f"},
     ]
 
+    root_dir: Path = Path(__file__).resolve().parent
+    runs_dir: Path = root_dir.parent
+    project_dir: Path = runs_dir.parent
     run_dir = root_dir
+
     epoch_info = info.EpochMetrics(bw_per_q_lvl, run_dir=run_dir, metrics=metric_specs)
     prev_info = None
 
