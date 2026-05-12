@@ -131,6 +131,10 @@ def plot_feat_dict(ax: Axes, bitrates: list[int] | tuple[int, ...], runs: dict[s
     """Plot feature matching loss across runs."""
     plot_metric_dict(ax, bitrates, runs, "FeatLoss(e-3)", "Feature Loss", avg, dotted)
 
+def plot_freq_dict(ax: Axes, bitrates: list[int] | tuple[int, ...], runs: dict[str, str], avg: bool = True, dotted: bool = True) -> None:
+    """Plot feature matching loss across runs."""
+    plot_metric_dict(ax, bitrates, runs, "FreqLoss(e-3)", "Frequency Loss", avg, dotted)
+
 
 def plot_total_score_dict(ax: Axes, bitrates: list[int] | tuple[int, ...], runs: dict[str, str], avg: bool = True, dotted: bool = True) -> None:
     """Plot combined PESQ/ESTOI score across runs."""
@@ -211,10 +215,8 @@ if __name__ == "__main__":
     bitrates = [300,600,1200]
 
     to_plot = {
-        #"nevo_lite": "blue",
         "main/nevo": "green",
         "main/nevo_lite":"blue",
-        #"80ms_lookahead": "red",
     }
 
     to_plot = {k: v for k, v in to_plot.items() if v is not None}
@@ -225,7 +227,7 @@ if __name__ == "__main__":
     plot_pesq_dict(axs[1], bitrates, to_plot, dotted=False, avg=True)
     plot_total_score_dict(axs[2], bitrates, to_plot, dotted=False)
     plot_total_score_smooth_dict(axs[3], bitrates, to_plot, dotted=False, window=5)
-    plot_commit_dict(axs[4], bitrates, to_plot, dotted=False)
+    plot_freq_dict(axs[4], bitrates, to_plot, dotted=False)
 
     for ax in axs:
         set_grid(ax, 10)
