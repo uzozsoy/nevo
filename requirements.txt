@@ -17,4 +17,5 @@ prettytable==3.17.0
 pystoi==0.4.1
 scipy==1.17.1
 torchcodec==0.11.1
+soundfile==0.13.1
 #torch-pesq==0.1.2 # not used
