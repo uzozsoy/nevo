@@ -1,6 +1,7 @@
 import random
 from collections.abc import Sequence
 from pathlib import Path
+import soundfile as sf
 
 import warnings
 
@@ -95,7 +96,8 @@ class AudioDataset(Dataset):
         for directory in self.directories:
 
             cache_path = directory / f"_audio_dataset_cache_sr{self.sample_rate}_chunk{self.chunk_len}.pt"
-            #this cached is used to initialize the dataset faster. if you change the dataset, don't forget to delete this cache
+            # This cache is used to initialize the dataset faster.
+            # If you change the dataset, delete this cache.
 
             if cache_path.exists():
                 cache = torch.load(cache_path, weights_only=False)
@@ -116,11 +118,13 @@ class AudioDataset(Dataset):
 
                 for path in paths:
                     try:
-                        info = torchaudio.info(str(path))
-                        length = int(info.num_frames)
+                        info = sf.info(str(path))
 
-                        if info.sample_rate != self.sample_rate:
-                            length = int(length * self.sample_rate / info.sample_rate)
+                        length = int(info.frames)
+                        sr = int(info.samplerate)
+
+                        if sr != self.sample_rate:
+                            length = int(length * self.sample_rate / sr)
 
                         if length < self.chunk_len:
                             if debug:
@@ -135,6 +139,9 @@ class AudioDataset(Dataset):
                     except Exception as e:
                         if debug:
                             print(f"Skipped unreadable file: {path} | {e}")
+
+                if len(valid_paths) == 0:
+                    raise RuntimeError(f"No valid audio files found in {directory}")
 
                 torch.save(
                     {
