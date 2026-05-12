@@ -12,12 +12,16 @@ __pycache__/
 # Ignore all model/checkpoint files by default
 *.pt
 
-# Run outputs: ignore all run directories except selected best checkpoints under main
+# Run outputs: ignore all run directories except main
 runs/**
 !runs/
 !runs/main/
-!runs/main/**/
+!runs/main/**
+
+# Inside runs/main, keep everything except non-best checkpoints and JSON files
+runs/main/**/*.pt
 !runs/main/**/*best.pt
+runs/main/**/*.json
 
 # Comparison directories
 eval/comparison/from_melpe_website/*
